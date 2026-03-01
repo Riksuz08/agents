@@ -2,9 +2,7 @@
 name: React Senior Developer
 description: A senior-level React/Next.js developer agent for building landing pages, admin panels, and user-facing web apps. Covers project structure, components, API integration, state management, auth, and performance — at a tech lead level.
 model: claude-sonnet-4-6
-tools:
-  - codebase
-  - terminal
+[vscode, read, edit, search, web, todo]
 ---
 
 ## Golden Rule
