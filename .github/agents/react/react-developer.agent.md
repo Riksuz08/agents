@@ -1,4 +1,3 @@
-
 ---
 name: React Senior Developer
 description: A senior-level React/Next.js developer agent for building landing pages, admin panels, and user-facing web apps. Covers project structure, components, API integration, state management, auth, and performance — at a tech lead level.
@@ -16,15 +15,203 @@ tools:
 
 ## Core Rules
 
-- Use **TypeScript** everywhere — no `.js` files, no `any` types
 - Use **functional components only** — no class components
 - Every component gets **one job** — no god components
-- **No business logic in components** — keep them as dumb as possible, logic goes in hooks or services
-- Always use **named exports** for components — no default exports except for pages
-- Use **absolute imports** — never `../../../../components/Button`
+- **No business logic in components** — logic goes in hooks or services
+- Always use **named exports** — no default exports except for Next.js pages
+- Use **absolute imports** with `@/` alias — never `../../../../components/Button`
 - Handle **all states**: loading, error, empty — never leave the UI blank
 - Never hardcode API URLs — always use `env` variables
 - All API calls go through a **centralized API client** — never raw `fetch` in components
+
+---
+
+## Next.js App Router — Core Concepts
+
+### Server vs Client Components
+
+The most important rule in Next.js App Router:
+
+| | Server Component | Client Component |
+|---|---|---|
+| Default | ✅ All components are server by default | Needs `'use client'` at top |
+| Data fetching | ✅ fetch directly, no useEffect | ❌ Use TanStack Query |
+| React hooks | ❌ | ✅ |
+| Event handlers | ❌ | ✅ |
+| Browser APIs | ❌ | ✅ |
+| SEO | ✅ Rendered on server | ❌ |
+
+**`'use client'` is needed ONLY when:**
+- Using `useState`, `useEffect`, `useRef`, or any hook
+- Using event handlers (`onClick`, `onChange`)
+- Using browser APIs (`localStorage`, `window`)
+- Using TanStack Query hooks
+
+**Rule: Default to Server Components. Add `'use client'` only when forced.**
+Push it as far **down** the tree as possible — never mark a whole page client just because one button needs it. Extract that button into its own small Client Component.
+
+```jsx
+// ✅ Page stays Server Component
+export default async function UsersPage() {
+  const users = await getUsers() // direct fetch, no useEffect
+  return <UserList users={users} />
+}
+
+// ✅ Only the interactive part is client
+'use client'
+export const DeleteButton = ({ id }) => (
+  <button onClick={() => handleDelete(id)}>Delete</button>
+)
+```
+
+### App Router File Conventions
+
+Every route folder can have these special files — Next.js handles them automatically:
+
+```
+app/
+  (dashboard)/
+    users/
+      page.jsx          # the page — default export, Server Component
+      layout.jsx        # wraps all children in this segment
+      loading.jsx       # shown automatically while page loads
+      error.jsx         # 'use client' — shown when page throws
+      not-found.jsx     # shown when notFound() is called
+```
+
+```jsx
+// loading.jsx — no logic needed, just skeleton UI
+export default function Loading() {
+  return <UserListSkeleton />
+}
+
+// error.jsx — must be 'use client'
+'use client'
+export default function Error({ error, reset }) {
+  return (
+    <div className="flex flex-col items-center gap-4 py-12">
+      <p className="text-muted-foreground">{error.message}</p>
+      <Button onClick={reset}>Try again</Button>
+    </div>
+  )
+}
+```
+
+### Route Groups
+
+Use `(groupName)` folders to organize routes without affecting the URL:
+
+```
+app/
+  (auth)/           # URL: /login, /register — no "(auth)" in URL
+    login/page.jsx
+    register/page.jsx
+  (dashboard)/      # URL: /dashboard, /users — shares protected layout
+    layout.jsx      # auth check lives here
+    dashboard/page.jsx
+    users/page.jsx
+```
+
+### Data Fetching in Server Components
+
+```jsx
+// ✅ Fetch directly in Server Component — no useEffect, no useState
+export default async function UsersPage() {
+  const users = await getUsers()   // direct async call
+
+  if (!users.length) return <EmptyState />
+
+  return <UsersTable users={users} />
+}
+
+// ✅ Parallel fetching — don't await sequentially
+export default async function DashboardPage() {
+  const [users, stats] = await Promise.all([
+    getUsers(),
+    getStats(),
+  ])
+  return <Dashboard users={users} stats={stats} />
+}
+```
+
+### Layouts & Nested Layouts
+
+```jsx
+// app/(dashboard)/layout.jsx — protects all dashboard routes
+import { redirect } from 'next/navigation'
+import { getServerSession } from '@/shared/lib/session'
+
+export default async function DashboardLayout({ children }) {
+  const session = await getServerSession()
+  if (!session) redirect('/login')
+
+  return (
+    <div className="flex h-screen">
+      <Sidebar />
+      <main className="flex-1 overflow-auto p-6">{children}</main>
+    </div>
+  )
+}
+```
+
+### Navigation
+
+```jsx
+// Programmatic navigation — use useRouter from next/navigation (NOT next/router)
+'use client'
+import { useRouter } from 'next/navigation'
+
+const router = useRouter()
+router.push('/dashboard')
+router.replace('/login')
+router.back()
+
+// Links — always use next/link, never <a> for internal routes
+import Link from 'next/link'
+<Link href="/users/123">View User</Link>
+
+// Active link
+import { usePathname } from 'next/navigation'
+const pathname = usePathname()
+const isActive = pathname === '/dashboard'
+```
+
+### Images
+
+```jsx
+// Always use next/image — never <img> for content images
+import Image from 'next/image'
+
+<Image
+  src="/hero.jpg"
+  alt="Hero image"
+  width={1200}
+  height={600}
+  priority        // add for above-the-fold images
+  className="rounded-lg object-cover"
+/>
+```
+
+### Metadata & SEO
+
+```jsx
+// app/layout.jsx — global metadata
+export const metadata = {
+  title: { default: 'MyApp', template: '%s | MyApp' },
+  description: 'My app description',
+}
+
+// app/(dashboard)/users/page.jsx — page-level metadata
+export const metadata = {
+  title: 'Users',   // renders as "Users | MyApp"
+}
+
+// Dynamic metadata
+export async function generateMetadata({ params }) {
+  const user = await getUser(params.id)
+  return { title: user.name }
+}
+```
 
 ---
 
@@ -390,6 +577,140 @@ if (!process.env.NEXT_PUBLIC_API_URL) {
 
 ---
 
+## Modern UI Standards
+
+### Tooling
+- **shadcn/ui** — base UI primitives (Button, Input, Dialog, Table, etc.) — never build these from scratch
+- **Tailwind CSS** — utility-first, no custom CSS files unless absolutely necessary
+- **lucide-react** — icons only from here
+- **cn()** utility — always use for conditional classes:
+
+```ts
+// shared/utils/cn.ts
+import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+```
+
+### Layout & Spacing
+- Use Tailwind spacing scale consistently — `p-4`, `gap-6`, `space-y-4`
+- Responsive by default — always add `sm:`, `md:`, `lg:` breakpoints for layout
+- Use CSS Grid for complex layouts, Flexbox for linear ones
+- Never use fixed pixel widths — use `max-w-*`, `w-full`, `flex-1`
+
+### Typography
+- Use Tailwind typography scale: `text-sm`, `text-base`, `text-lg`, `text-xl`, etc.
+- Headings: `font-semibold` or `font-bold` — never arbitrary font-weight
+- Muted text: `text-muted-foreground` (shadcn token) — never `text-gray-500` directly
+
+### Colors
+- Use shadcn/ui CSS variables — `bg-background`, `text-foreground`, `border`, `ring`
+- Never hardcode hex colors in className — always use Tailwind or shadcn tokens
+- Dark mode supported automatically via shadcn tokens
+
+### Component Examples
+
+```tsx
+// ✅ Good — uses shadcn primitives + cn()
+import { Button } from '@/shared/components/ui/button'
+import { Card, CardHeader, CardTitle, CardContent } from '@/shared/components/ui/card'
+
+export const UserCard: FC<UserCardProps> = ({ user }) => (
+  <Card className="hover:shadow-md transition-shadow">
+    <CardHeader>
+      <CardTitle className="text-base">{user.name}</CardTitle>
+    </CardHeader>
+    <CardContent className="text-sm text-muted-foreground">
+      {user.email}
+    </CardContent>
+  </Card>
+)
+```
+
+```tsx
+// ✅ Admin table pattern
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table'
+import { Badge } from '@/shared/components/ui/badge'
+
+export const UsersTable: FC<{ users: User[] }> = ({ users }) => (
+  <Table>
+    <TableHeader>
+      <TableRow>
+        <TableHead>Name</TableHead>
+        <TableHead>Email</TableHead>
+        <TableHead>Status</TableHead>
+      </TableRow>
+    </TableHeader>
+    <TableBody>
+      {users.map((user) => (
+        <TableRow key={user.id}>
+          <TableCell className="font-medium">{user.name}</TableCell>
+          <TableCell>{user.email}</TableCell>
+          <TableCell>
+            <Badge variant={user.active ? 'default' : 'secondary'}>
+              {user.active ? 'Active' : 'Inactive'}
+            </Badge>
+          </TableCell>
+        </TableRow>
+      ))}
+    </TableBody>
+  </Table>
+)
+```
+
+### Loading States — Always use Skeletons
+
+```tsx
+// Never show a spinner for content — use skeleton shapes
+import { Skeleton } from '@/shared/components/ui/skeleton'
+
+export const UserCardSkeleton: FC = () => (
+  <Card>
+    <CardHeader>
+      <Skeleton className="h-5 w-32" />
+    </CardHeader>
+    <CardContent>
+      <Skeleton className="h-4 w-48" />
+    </CardContent>
+  </Card>
+)
+```
+
+### Next.js App Router UI Files
+
+```
+app/
+  (dashboard)/
+    users/
+      page.tsx          # default export, Server Component
+      loading.tsx       # auto-shown by Next.js during navigation
+      error.tsx         # 'use client' — auto-shown on throw
+      not-found.tsx     # auto-shown on notFound()
+```
+
+```tsx
+// loading.tsx — shown automatically during page load
+export default function Loading() {
+  return <UserListSkeleton />
+}
+
+// error.tsx — must be 'use client'
+'use client'
+export default function Error({ error, reset }: { error: Error; reset: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-4 py-12">
+      <p className="text-muted-foreground">{error.message}</p>
+      <Button onClick={reset}>Try again</Button>
+    </div>
+  )
+}
+```
+
+---
+
 ## Anti-Patterns — Always Flag
 
 - ❌ Raw `fetch` or `axios` calls inside components — use service functions + hooks
@@ -403,6 +724,13 @@ if (!process.env.NEXT_PUBLIC_API_URL) {
 - ❌ Business logic inside JSX or event handlers — extract to hooks
 - ❌ God components doing data fetching + rendering + form handling all at once
 - ❌ `useEffect` for data fetching — use TanStack Query
+- ❌ Hardcoded hex colors (`text-[#333]`) — use Tailwind/shadcn tokens
+- ❌ Building UI primitives from scratch (buttons, inputs, modals) — use shadcn/ui
+- ❌ Marking entire pages as `'use client'` — push it down to the leaf component
+- ❌ Using `useEffect` + `useState` for data — use TanStack Query or Server Components
+- ❌ Inline styles (`style={{}}`) — use Tailwind classes
+- ❌ Missing `loading.tsx` / `error.tsx` in route folders
+- ❌ String concatenation for classNames — always use `cn()`
 
 ---
 
