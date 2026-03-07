@@ -189,20 +189,107 @@ class UnknownFailure     extends Failure { const UnknownFailure({super.message =
 
 ### UI — Status-based rendering
 
+### ✅ Correct Pattern — Per-field status, element-level rendering
+
+Each `Status` field controls **only its own UI slice**. The page always renders — individual elements respond to their own status independently.
+
 ```dart
 BlocBuilder<XxxCubit, XxxState>(
   builder: (context, state) {
-    return switch (state.status) {
-      Status.LOADING      => const ShimmerListWidget(),
-      Status.EMPTY        => const EmptyStateWidget(),
-      Status.FAILURE      => ErrorWidget(message: state.failure.message),
-      Status.NO_CONNECTION => const NoConnectionWidget(),
-      Status.SUCCESS      => XxxListWidget(items: state.items),
-      Status.UNKNOWN      => const SizedBox.shrink(),
-    };
+    return Column(
+      children: [
+        // Each section handles its own status independently
+        _buildItemsSection(state),
+        _buildFavoritesSection(state),
+      ],
+    );
   },
 )
+
+Widget _buildItemsSection(XxxState state) {
+  return switch (state.status) {
+    Status.LOADING       => const ShimmerListWidget(),
+    Status.EMPTY         => const EmptyStateWidget(),
+    Status.FAILURE       => ErrorWidget(message: state.failure.message),
+    Status.NO_CONNECTION => const NoConnectionWidget(),
+    Status.SUCCESS       => XxxListWidget(items: state.items),
+    Status.UNKNOWN       => const SizedBox.shrink(),
+  };
+}
+
+Widget _buildFavoritesSection(XxxState state) {
+  return switch (state.statusFavorites) {
+    Status.LOADING       => const ShimmerCardWidget(),
+    Status.EMPTY         => const SizedBox.shrink(), // silent — don't block page
+    Status.FAILURE       => const SizedBox.shrink(), // silent — don't block page
+    Status.NO_CONNECTION => const SizedBox.shrink(), // silent — don't block page
+    Status.SUCCESS       => FavoritesRowWidget(items: state.favorites),
+    Status.UNKNOWN       => const SizedBox.shrink(),
+  };
+}
 ```
+
+---
+
+### Rules
+
+- **Never gate the entire page on a single `Status`** — each section owns its status field
+- A failing secondary section (`FAILURE`, `EMPTY`, `NO_CONNECTION`) returns `SizedBox.shrink()` — it does **not** block the rest of the UI
+- Only the **primary/critical section** should show a full error or empty state widget
+- Use one `Status` field per independent async concern in the state class:
+
+```dart
+@freezed
+abstract class XxxState with _$XxxState {
+  const factory XxxState({
+    @Default(Status.UNKNOWN) Status status,           // primary list
+    @Default(Status.UNKNOWN) Status statusFavorites,  // secondary section
+    @Default(Status.UNKNOWN) Status statusFiltered,   // another slice
+    @Default([]) List<XxxModel> items,
+    @Default([]) List<XxxModel> favorites,
+    @Default(UnknownFailure()) Failure failure,
+  }) = _XxxState;
+}
+```
+
+- In the Cubit, each operation emits **only its own status field** via `copyWith` — other fields are untouched:
+
+```dart
+Future<void> loadFavorites() async {
+  emit(state.copyWith(statusFavorites: Status.LOADING));
+
+  final result = await _getFavoritesUseCase();
+
+  result.fold(
+    (failure) => emit(state.copyWith(
+      statusFavorites: _statusFromFailure(failure),
+      failure: failure,
+    )),
+    (data) => emit(state.copyWith(
+      statusFavorites: data.isEmpty ? Status.EMPTY : Status.SUCCESS,
+      favorites: data,
+    )),
+  );
+}
+```
+
+---
+
+### ❌ Anti-Pattern — Full-page switch (wrong)
+
+```dart
+// ❌ WRONG — one status gates the entire page
+// If statusFavorites fails, the whole screen disappears
+return switch (state.status) {
+  Status.SUCCESS => EntirePageWidget(...),
+  Status.FAILURE => FullPageErrorWidget(),
+  ...
+};
+```
+
+> **Key mental model: the page is always visible — only its sections respond to their own status.**
+
+---
 
 ### UI Usage Rules
 
@@ -327,7 +414,7 @@ Choose based on data structure:
 | State Management | `flutter_bloc` (Cubit) |
 | Navigation | `go_router` |
 | Dependency Injection | `get_it` + `injectable` |
-| Networking | `dio` + `retrofit` |
+| Networking | `dio` |
 | Serialization | `freezed` + `json_serializable` |
 | Functional Error Handling | `fpdart` |
 | Local KV Storage | `shared_preferences` |
@@ -392,6 +479,7 @@ When given an error or bug, always:
 - ❌ Unguarded `!` null assertions
 - ❌ Raw `Map<String, dynamic>` leaking from data layer into domain
 - ❌ Calling cubit methods inside `build()`
+- ❌ Gating the entire page UI on a single `Status` field
 
 ---
 
