@@ -59,7 +59,7 @@ lib/
   core/
     di/                   # get_it + injectable setup
     errors/               # failures, exceptions, Either types
-    network/              # dio client, interceptors
+    network/              # DioClient, interceptors, safeRequest, ListAPI
     storage/              # DB helper, local storage service
     theme/                # AppTheme, color scheme, text styles
     utils/                # extensions, helpers, constants
@@ -71,6 +71,19 @@ lib/
 - Inject all dependencies via **get_it + injectable** — register in `core/di/`
 - Use **use case classes** for all business logic (one use case = one public `call()` method)
 - Handle errors with `fpdart` `Either<Failure, T>` — never throw raw exceptions across layers
+
+---
+
+## File Structure Rules
+
+- **Screen files (`screens/`)** contain the main screen widget and its **inline body content** (simple Text, Padding, Container, badges, images, etc.)
+- **Complex/composite UI** must be extracted into separate **public** StatelessWidget files inside the `widgets/` folder. This includes: lists (ListView/GridView), cards, chips, chip lists, app bars, reusable components, and any widget with its own BlocBuilder
+- **Simple content** (a few Texts, a badge, an image, a row of basic elements) stays **inline in the screen's `build()` method** — do NOT create a separate widget file for trivial content
+- No `_build*()` helper methods and no private widget classes in screen files — either it's inline in `build()`, or it's a widget in `widgets/`
+- Each widget = one file. File name matches widget name in `snake_case` (e.g., `FeaturedGameCard` → `featured_game_card.dart`)
+- Screen files import widgets from `widgets/`. Widgets may import other widgets but never import screens.
+- Constants (gradient lists, color maps, etc.) used by multiple widgets go into a shared file (e.g., `game_constants.dart`) inside `widgets/` or a `constants/` folder
+- Widgets that depend on Cubit/BlocBuilder should contain the BlocBuilder internally — screens should not wrap widgets in BlocBuilders
 
 ---
 
@@ -99,13 +112,17 @@ enum Status {
 
 ---
 
-### State Pattern — Single `@freezed` class with `Status` fields
+### State Pattern — Single `@freezed` abstract class with `Status` fields
 
-State is a **single `@freezed` data class** with `Status` fields for each independent async concern.  
+State is a **single `@freezed` abstract class** with `Status` fields for each independent async concern.  
 Do **NOT** use sealed union factories (`AuthState.loading()`, `AuthState.failure()` etc.) — that pattern is incorrect for this project.
 
+### Freezed State Template (v3.x)
+
 ```dart
-part of 'xxx_cubit.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'xxx_state.freezed.dart';
 
 @freezed
 abstract class XxxState with _$XxxState {
@@ -118,7 +135,15 @@ abstract class XxxState with _$XxxState {
 }
 ```
 
-**Rules:**
+**Key rules:**
+- Always use `abstract class` — required by freezed v3
+- Single factory `= _XxxState` — never sealed union factories
+- Use `@Default()` for non-nullable fields with defaults
+- Nullable fields (e.g. `int? selectedCategoryId`) don't need `@Default`
+- `copyWith` is auto-generated — never write manual `copyWith`
+- For nullable fields, `copyWith(field: value)` works directly (no wrapper function needed)
+- After creating/editing state, run: `flutter pub run build_runner build --delete-conflicting-outputs`
+- Never edit `*.freezed.dart` files — they are auto-generated
 - One `Status` field per independent async operation (e.g. `status`, `statusFavorites`, `statusFiltered`)
 - Use `@Default(Status.UNKNOWN)` — never leave Status fields nullable
 - Use `@Default([])` for lists, `@Default(<K,V>{})` for maps
@@ -178,11 +203,11 @@ abstract class Failure {
   final String message;
 }
 
-class ServerFailure      extends Failure { const ServerFailure({super.message = 'Server error'}); }
+class ServerFailure       extends Failure { const ServerFailure({super.message = 'Server error'}); }
 class NoConnectionFailure extends Failure { const NoConnectionFailure({super.message = 'No internet connection'}); }
-class TimeoutFailure     extends Failure { const TimeoutFailure({super.message = 'Request timed out'}); }
-class CacheFailure       extends Failure { const CacheFailure({super.message = 'Cache error'}); }
-class UnknownFailure     extends Failure { const UnknownFailure({super.message = 'Unknown error'}); }
+class TimeoutFailure      extends Failure { const TimeoutFailure({super.message = 'Request timed out'}); }
+class CacheFailure        extends Failure { const CacheFailure({super.message = 'Cache error'}); }
+class UnknownFailure      extends Failure { const UnknownFailure({super.message = 'Unknown error'}); }
 ```
 
 ---
@@ -464,6 +489,14 @@ When given an error or bug, always:
 - **Integration tests** — end-to-end user flows (`integration_test` package)
 - Mock all external dependencies with `mocktail`
 - Target **≥ 80% coverage** on domain and data layers
+
+---
+
+## Coordination
+
+- Sync API contracts with **Backend Developer** before implementing datasources
+- Confirm data models and storage schema with **Database Architect**
+- Coordinate auth token handling with **Security Manager**
 
 ---
 
